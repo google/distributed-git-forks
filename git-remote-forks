@@ -1,0 +1,235 @@
+#!/bin/bash -e
+# Copyright 2019 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# This script defines a git remote helper that can pull from a virtual
+# remote repository that is comprised of a single (wrapped) remote and
+# all of its forks.
+#
+# The resulting virtual remote repository is read-only. Rather than
+# pushing updates directly to it, they should be pushed to either the
+# wrapped remote repository or one of the forks.
+
+## Variables that track remote repository URLs
+declare remote
+declare upstream
+declare -A sha1_remotes
+
+## Variables that track options for fetching
+declare fetch_options
+declare depth
+declare deepen_relative
+declare force
+declare update_shallow
+declare verbosity
+declare progress
+
+function capabilities {
+  echo $'fetch
+option
+'
+}
+
+function option {
+  name="${1}"
+  value="${2}"
+  case "${name}" in
+    depth)
+      depth="${value}"
+      ;;
+    deepen-since)
+      fetch_options="${fetch_options} --shallow-since=${value}"
+      ;;
+    deepen-not)
+      fetch_options="${fetch_options} --shallow-exclude=${value}"
+      ;;
+    deepen-relative)
+      if [[ "${value}" == "true" ]]; then
+        deepen_relative="true"
+      else
+        deepen_relative=""
+      fi
+      ;;
+    force)
+      if [[ "${value}" == "true" ]]; then
+        force="true"
+      else
+        force=""
+      fi
+      ;;
+    progress)
+      progress="${value}"
+      ;;
+    update-shallow)
+      if [[ "${value}" == "true" ]]; then
+        update_shallow="true"
+      else
+        update_shallow=""
+      fi
+      ;;
+    verbosity)
+      verbosity="${value}"
+      ;;
+    *)
+      echo "Unsupported option: ${name}" >&2
+      echo "unsupported"
+      return
+  esac
+  echo "ok"
+}
+
+function fork_refspecs {
+  name="${1}"
+  remote="${2}"
+  fork_show="$(git fork show "${name}" "${remote}" 2>/dev/null || true)"
+  echo "${fork_show}" | grep $'\tfetch = ' | sed -e $'s/\tfetch = //g'
+}
+
+function fork_rewrite_rules {
+  fetchspecs="${1}"
+  trimmed_refspecs="${fetchspecs//\*/}"
+  escaped_refspecs="${trimmed_refspecs//\//\\\/}"
+  rewrite_rules=""
+  for refspec in ${escaped_refspecs}; do
+    rewrite_rules="${rewrite_rules} -e s/${refspec//:/\/}/g"
+  done
+  echo "${rewrite_rules}"
+}
+
+function list {
+  # List the refs of the virtual remote repository, followed by an empty line.
+  #
+  # The refs are each listed on a single line, in the following format:
+  #   "<value> <ref-name> [<attribute>*]".
+  declare -A ref_sha1s
+  upstream_refs="$(git ls-remote "${upstream}" refs/* 2>/dev/null)"
+  while read line; do
+    if [[ -n "${line}" ]]; then
+      sha1=$(echo "${line}" | cut -f 1)
+      name=$(echo "${line}" | cut -f 2)
+      echo "${sha1} ${name}"
+      sha1_remotes[sha1_${sha1}]="${upstream}"
+      ref_sha1s[${name}]="${sha1}"
+    fi
+  done < <(echo "${upstream_refs}")
+  upstream_forks="$(git fork list "${upstream}" 2>/dev/null)"
+  while read fork_line; do
+    name=$(echo "${fork_line}" | cut -d $'\t' -f 1)
+    url=$(echo "${fork_line}" | cut -d $'\t' -f 2)
+    fork_fetchspecs="$(fork_refspecs "${name}" "${upstream}")"
+    fork_refs="$(echo "${fork_fetchspecs}" | cut -d ':' -f 1)"
+    fork_objs=$(git ls-remote "${url}" ${fork_refs} 2>/dev/null || true)
+    rewrite_rules=$(fork_rewrite_rules "${fork_fetchspecs}")
+    rewritten_fork_objs=$(echo "${fork_objs}" | sed ${rewrite_rules} 2>/dev/null)
+    if [[ -n "${fork_objs}" ]]; then
+      while read fork_obj; do
+        sha1=$(echo "${fork_obj}" | cut -f 1)
+        name=$(echo "${fork_obj}" | cut -f 2)
+        if [[ -z "${ref_sha1s[${name}]}" ]]; then
+          ref_sha1s[${name}]="${sha1}"
+          echo "${sha1} ${name}"
+          if [[ -z "${sha1_remotes[sha1_${sha1}]}" ]]; then
+            sha1_remotes[sha1_${sha1}]="${url}"
+          fi
+        fi
+      done < <(echo "${rewritten_fork_objs}")
+    fi
+  done < <(git fork list "${upstream}" 2>/dev/null)
+  echo ""
+}
+
+function fetch {
+  sha1="${1}"
+  name="${2}"
+
+  fork="${sha1_remotes[sha1_${sha1}]}"
+  if [[ -z "${fork}" ]]; then
+    fork="${upstream}"
+  fi
+
+  fetchspec="${sha1}:${name}"
+  if [[ -n "${force}" ]]; then
+    fetchspec="+${fetchspec}"
+  fi
+
+  options="${fetch_options}"
+  if [[ -n "${depth}" ]]; then
+    if [[ -n "${deepen_relative}" ]]; then
+      options="${options} --deepen=${depth}"
+    else
+      options="${options} --depth=${depth}"
+    fi
+  fi
+  if [[ -n "${update_shallow}" ]]; then
+    options="${options} --update-shallow"
+  fi
+
+  git fetch -u ${options} "${fork}" "${fetchspec}" >&2
+}
+
+function run_command {
+  line="${1}"
+  parts=($line)
+  cmd="${parts[0]}"
+  case "${cmd}" in
+    capabilities)
+      capabilities
+      ;;
+    list)
+      list
+      ;;
+    fetch)
+      fetch "${parts[1]}" "${parts[2]}"
+      ;;
+    option)
+      option "${parts[1]}" "${parts[2]}"
+      ;;
+    *)
+      echo "Unrecognized command: ${cmd}" >&2
+      exit 1
+  esac
+}
+
+# We support two scenarios:
+# 1. A URL was provided (either directly or via a configured remote), of
+#    the form "forks://<upstream>". In that scenario, the second argument
+#    will be this entire URL (including the `forks://` prefix).
+# 2. A URL is provided (either directly or via a configured remote), of
+#    the form `forks::<upstream>`. In this case the second argument is
+#    '<upstream>'.
+remote="${1}"
+url="${2}"
+if [[ "${url:0:8}" == "forks://" ]]; then
+  upstream="${url:8}"
+elif [[ -n "${url}" ]]; then
+  upstream="${url}"
+else
+  echo "No upstream URL configured for ${remote}" >&2
+  exit 1
+fi
+
+while read input_line; do
+  declare fetching
+  if [[ -n "${input_line}" ]]; then
+    if [[ "${input_line:0:6}" == "fetch " ]]; then
+      fetching="true"
+    else
+      fetching=""
+    fi
+    run_command "${input_line}"
+  elif [[ -n "${fetching}" ]]; then
+    fetching=""
+    echo ""
+  fi
+done
