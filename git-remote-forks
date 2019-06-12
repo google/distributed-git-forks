@@ -123,9 +123,15 @@ function list {
       ref_sha1s[${name}]="${sha1}"
     fi
   done < <(echo "${upstream_refs}")
+  upstream_forks=$(git fork list "${upstream}" 2>/dev/null)
+  for blocked_host in ${GIT_BLOCKED_FORK_HOSTS}; do
+    upstream_forks=$(echo "${upstream_forks}" | grep -v "${blocked_host}")
+  done
+  original_blocked_hosts="${GIT_BLOCKED_FORK_HOSTS}"
   while read fork_line; do
     name=$(echo "${fork_line}" | cut -d $'\t' -f 1)
     url=$(echo "${fork_line}" | cut -d $'\t' -f 2)
+    export GIT_BLOCKED_FORK_HOSTS="${original_blocked_hosts} ${url}"
     fork_fetchspecs="$(fork_refspecs "${name}" "${upstream}")"
     fork_refs="$(echo "${fork_fetchspecs}" | cut -d ':' -f 1)"
     fork_objs=$(git ls-remote "${url}" ${fork_refs} 2>/dev/null || true)
@@ -144,7 +150,8 @@ function list {
         fi
       done < <(echo "${rewritten_fork_objs}")
     fi
-  done < <(git fork list "${upstream}" 2>/dev/null | grep -v "forks:")
+  done < <(echo "${upstream_forks}")
+  export GIT_BLOCKED_FORK_HOSTS="${original_blocked_hosts}"
   echo ""
 }
 
