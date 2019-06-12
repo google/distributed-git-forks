@@ -123,7 +123,6 @@ function list {
       ref_sha1s[${name}]="${sha1}"
     fi
   done < <(echo "${upstream_refs}")
-  upstream_forks="$(git fork list "${upstream}" 2>/dev/null)"
   while read fork_line; do
     name=$(echo "${fork_line}" | cut -d $'\t' -f 1)
     url=$(echo "${fork_line}" | cut -d $'\t' -f 2)
@@ -145,7 +144,7 @@ function list {
         fi
       done < <(echo "${rewritten_fork_objs}")
     fi
-  done < <(git fork list "${upstream}" 2>/dev/null)
+  done < <(git fork list "${upstream}" 2>/dev/null | grep -v "forks:")
   echo ""
 }
 

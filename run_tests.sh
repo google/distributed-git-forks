@@ -77,5 +77,19 @@ test_pull_from_forks() {
   git cat-file -p "${fork_commit}"
 }
 
+test_forks_cycle() {
+  cd "${test_upstream}"
+  git fork remove fork1
+  git fork add fork1 "forks::${test_fork1}"
+
+  cd "${test_fork1}"
+  git fork add fork1 "forks::${test_upstream}"
+
+  cd "${test_fork2}"
+  echo "Listing the remote refs from ${test_fork2}..." >&2
+  git ls-remote origin >&2 || exit_with_message "failed to list the remote refs with a forks cycle..."
+}
+
 setup_repos || exit_with_message "setting up the test repositories failed"
 test_pull_from_forks || exit_with_message "testing pulling from a fork failed"
+test_forks_cycle || exit_with_message "testing listing from a repo with a forks cycle failed"
