@@ -159,17 +159,17 @@ function add_fork {
   updated_forks_tree=$(recursive_add_to_tree "blob" "${name_hash}" "${name_path}" "${current_forks_commit}")
   updated_forks_tree=$(recursive_add_to_tree "blob" "${url_hash}" "${url_path}" "${updated_forks_tree}")
   for refspec in \
+    "refs/*:refs/forks/${name}/*" \
     "refs/heads/${name}/*:refs/heads/${name}/*" \
     "refs/tags/${name}/*:refs/tags/${name}/*" \
-    "refs/notes/devtools/*:refs/notes/forks/${name}/devtools/*" \
-    "refs/devtools/*:refs/forks/${name}/devtools/*"; do
+    "refs/notes/*:refs/notes/forks/${name}/*"; do
     refspec_hash="$(echo "${refspec}" | git hash-object -w --stdin)"
     refspec_path="${fork_path}/REFSPECS/${refspec_hash}"
     updated_forks_tree=$(recursive_add_to_tree "blob" "${refspec_hash}" "${refspec_path}" "${updated_forks_tree}")
   done
 
   for owner in ${owners}; do
-    refspec="refs/notes/devtools/*:refs/notes/forks/${owner}/devtools/*"
+    refspec="refs/notes/*:refs/notes/forks/${owner}/*"
     refspec_hash="$(echo "${refspec}" | git hash-object -w --stdin)"
     refspec_path="${fork_path}/REFSPECS/${refspec_hash}"
     updated_forks_tree=$(recursive_add_to_tree "blob" "${refspec_hash}" "${refspec_path}" "${updated_forks_tree}")

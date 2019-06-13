@@ -88,25 +88,23 @@ git fork pull <REMOTE>
 
 ### Pushing to the virtual repository through a fork
 
-The set of git-refs fetched from a fork are also stored in the repository.
+The virtual repository is read-only. Rather than pushing to it directly,
+you push to your fork. Then, anyone pulling from the virtual repository
+will fetch the corresponding refs from your fork.
+
+The set of refs fetched from each fork is also stored in the repository.
 
 By default, they are based on the name of the fork and include all branches
 and tags that start with `<name>/`, where `<name>` is the name of the fork.
 
-Additionally, all refs under `refs/notes/devtools` and `refs/devtools` in a
-fork are mapped to the corresponding `refs/notes/forks/<name>/devtools` and
-`refs/forks/<name>/devtools` refs in the virtual repo.
+For example, if there is a fork named `my-fork` and it has a branch named
+`my-fork/my-branch` and a tag named `my-fork/my-tag`, then both that branch
+and that tag will appear in the virtual repository.
 
-For example, if a remote repository hosted at `https://github.com/git-appraise`
-includes a fork named `ojarjur`, that fork has a branch named `ojarjur/forks`
-and a tag named `ojarjur/forks_v1`, then the remote repository accessed via
-`forks::https://github.com/git-appraise` will include the following refs:
+Additionally, git notes refs from a fork are mapped to the virtual
+repository under `refs/notes/forks/<fork-name>/`.
 
-```
-refs/heads/ojarjur/forks
-refs/tags/ojarjur/forks_v1
-```
-
-It will also include refs under `refs/notes/forks/ojarjur/devtools` and
-`refs/forks/ojarjur/devtools` that correspond to all refs under
-`refs/notes/devtools` and `refs/devtools` in the fork.
+Finally, all refs from a fork (including branches, tags, and notes)
+are mapped to the virtual repository under `refs/forks/<fork-name>/`.
+This ensures that every ref from the fork is accessible via the
+virtual repo, even if they do not match one of the rules above.

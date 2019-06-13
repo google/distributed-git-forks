@@ -96,15 +96,22 @@ function fork_refspecs {
   echo "${fork_show}" | grep $'\tfetch = ' | sed -e $'s/\tfetch = //g'
 }
 
-function fork_rewrite_rules {
-  fetchspecs="${1}"
-  trimmed_refspecs="${fetchspecs//\*/}"
-  escaped_refspecs="${trimmed_refspecs//\//\\\/}"
-  rewrite_rules=""
-  for refspec in ${escaped_refspecs}; do
-    rewrite_rules="${rewrite_rules} -e s/${refspec//:/\/}/g"
+function fork_objects {
+  url="${1}"
+  fetchspecs="${2}"
+
+  raw_objs=$(git ls-remote "${url}" 2>/dev/null || true)
+  for fetchspec in ${fetchspecs}; do
+    trimmed_fetchspec="${fetchspec//\*/}"
+    source=$(echo "${trimmed_fetchspec}" | cut -d ':' -f 1)
+    target=$(echo "${trimmed_fetchspec}" | cut -d ':' -f 2)
+    matching_objs=$(echo "${raw_objs}" | grep "${source}")
+    rewrite_rule="s/${source//\//\\\/}/${target//\//\\\/}/g"
+    mapped_objs="$(echo "${matching_objs}" | sed -e "${rewrite_rule}")"
+    if [[ -n "${mapped_objs}" ]]; then
+      echo "${mapped_objs}"
+    fi
   done
-  echo "${rewrite_rules}"
 }
 
 function list {
@@ -132,11 +139,9 @@ function list {
     name=$(echo "${fork_line}" | cut -d $'\t' -f 1)
     url=$(echo "${fork_line}" | cut -d $'\t' -f 2)
     export GIT_BLOCKED_FORK_HOSTS="${original_blocked_hosts} ${url}"
+
     fork_fetchspecs="$(fork_refspecs "${name}" "${upstream}")"
-    fork_refs="$(echo "${fork_fetchspecs}" | cut -d ':' -f 1)"
-    fork_objs=$(git ls-remote "${url}" ${fork_refs} 2>/dev/null || true)
-    rewrite_rules=$(fork_rewrite_rules "${fork_fetchspecs}")
-    rewritten_fork_objs=$(echo "${fork_objs}" | sed ${rewrite_rules} 2>/dev/null)
+    fork_objs=$(fork_objects "${url}" "${fork_fetchspecs}")
     if [[ -n "${fork_objs}" ]]; then
       while read fork_obj; do
         sha1=$(echo "${fork_obj}" | cut -f 1)
@@ -148,7 +153,7 @@ function list {
             sha1_remotes[sha1_${sha1}]="${url}"
           fi
         fi
-      done < <(echo "${rewritten_fork_objs}")
+      done < <(echo "${fork_objs}")
     fi
   done < <(echo "${upstream_forks}")
   export GIT_BLOCKED_FORK_HOSTS="${original_blocked_hosts}"
