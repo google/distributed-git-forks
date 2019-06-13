@@ -34,6 +34,10 @@ This repository provides two tools for dealing with forks:
 To install these tools, simply copy the two provided scripts
 (`git-fork` and `git-remote-forks`) into some directory in your path.
 
+The `git-remote-forks` tool requires Bash version 4. OSX comes with
+version 3 of Bash, so you will have to install the newer version in
+order to use the tool on a Mac.
+
 ## Example usage
 
 ### Adding a repository with all of its forks as a remote
