@@ -25,6 +25,7 @@
 declare remote
 declare upstream
 declare -A sha1_remotes
+declare -A sha1_refs
 
 ## Variables that track options for fetching
 declare fetch_options
@@ -127,6 +128,7 @@ function list {
       name=$(echo "${line}" | cut -f 2)
       echo "${sha1} ${name}"
       sha1_remotes[sha1_${sha1}]="${upstream}"
+      sha1_refs[sha1_${sha1}]="${name}"
       ref_sha1s[${name}]="${sha1}"
     fi
   done < <(echo "${upstream_refs}")
@@ -151,6 +153,7 @@ function list {
           echo "${sha1} ${name}"
           if [[ -z "${sha1_remotes[sha1_${sha1}]}" ]]; then
             sha1_remotes[sha1_${sha1}]="${url}"
+            sha1_refs[sha1_${sha1}]="${name}"
           fi
         fi
       done < <(echo "${fork_objs}")
@@ -165,11 +168,13 @@ function fetch {
   name="${2}"
 
   fork="${sha1_remotes[sha1_${sha1}]}"
+  fork_ref="${sha1_refs[sha1_${sha1}]}"
   if [[ -z "${fork}" ]]; then
     fork="${upstream}"
+    fork_ref="${sha1}"
   fi
 
-  fetchspec="${sha1}:${name}"
+  fetchspec="${fork_ref}:${name}"
   if [[ -n "${force}" ]]; then
     fetchspec="+${fetchspec}"
   fi
